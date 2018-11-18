@@ -1,0 +1,505 @@
+#!/usr/bin/php
+<?php
+/**
+ * Created by PhpStorm.
+ * User: peiman
+ * Date: 11/17/18
+ * Time: 11:17 PM
+ */
+
+require __DIR__ . '/vendor/autoload.php';
+use splitbrain\phpcli\CLI;
+use splitbrain\phpcli\Options;
+use splitbrain\phpcli\Colors;
+use splitbrain\phpcli\TableFormatter;
+
+require_once 'client.php';
+
+class iRedis extends CLI
+{
+    private $debug = false;
+    private $redis_client;
+
+    private $last_employee_id = 0;
+    private $last_store_id = 0;
+    private $last_position_id = 0;
+
+    private $prefix = 'employees3_';
+
+    protected function setup(Options $options)
+    {
+        $this->redis_client = new RedisClient( '127.0.0.1:6379' );
+        if($this->redis_client->exists($this->prefix.'last_employee_id')) {
+            $this->last_employee_id = $this->redis_client->get($this->prefix.'last_employee_id');
+        } else {
+            $this->last_employee_id = 0;
+        }
+        if($this->redis_client->exists($this->prefix.'last_store_id')) {
+            $this->last_store_id = $this->redis_client->get($this->prefix.'last_store_id');
+        } else {
+            $this->last_store_id = 0;
+        }
+        if($this->redis_client->exists($this->prefix.'last_position_id')) {
+            $this->last_position_id = $this->redis_client->get($this->prefix.'last_position_id');
+        } else {
+            $this->last_position_id = 0;
+        }
+        if($this->debug) {
+            $this->notice('🐞 last_employee_id: '. $this->last_employee_id);
+            $this->notice('🐞 last_position_id: '. $this->last_position_id);
+            $this->notice('🐞 last_store_id: '. $this->last_store_id);
+        }
+        $options->registerCommand('add_employee', 'The set command for employee.');
+        $options->registerCommand('get_employee', 'The get command for employee.');
+        $options->registerOption('average', '', 'a');
+        $options->registerOption('sum', '', 's');
+        /*$options->registerArgument('name', 'Employee name', true, 'add_employee');
+        $options->registerArgument('position', 'Employee position', true, 'add_employee');
+        $options->registerArgument('income', 'Employee income', true, 'add_employee');
+        $options->registerArgument('store', 'Employee store location', true, 'add_employee');*/
+    }
+
+
+    protected function main(Options $options)
+    {
+        switch ($options->getCmd()) {
+            case 'add_employee':
+                $name_received = $pos_received = $store_received = $income_received = FALSE;
+                if($this->debug) {
+                    $this->notice("🐞 Arguments received: ".implode(', ', $options->getArgs()));
+                    $this->notice("🐞 Processing args:");
+                }
+                foreach ($options->getArgs() as $arg) {
+                    if($this->debug) {
+                        $this->notice("🐞 Processing arg: {$arg}");
+                    }
+                    if(strpos($arg, 'name=') !== FALSE) {
+                        $name = str_replace('name=', '', $arg);
+                        if($this->debug) {
+                            $this->notice("🐞 Arg is name: {$name}");
+                        }
+                        $name_received = true;
+                    }
+                    if(strpos($arg, 'position=') !== FALSE) {
+                        $position = str_replace('position=', '', $arg);
+                        if($this->debug) {
+                            $this->notice("🐞 Arg is position: {$position}");
+                        }
+                        $pos_received = true;
+                    }
+                    if(strpos($arg, 'income=') !== FALSE) {
+                        $income = str_replace('income=', '', $arg);
+                        if($this->debug) {
+                            $this->notice("🐞 Arg is income: {$income}");
+                        }
+                        $income_received = true;
+                    }
+                    if(strpos($arg, 'store=') !== FALSE) {
+                        $store = str_replace('store=', '', $arg);
+                        if($this->debug) {
+                            $this->notice("🐞 Arg is store: {$store}");
+                        }
+                        $store_received = true;
+                    }
+                }
+                if(!$name_received) {
+                    $this->error('Name is required');
+                    break;
+                }
+                if(!$pos_received) {
+                    $this->error('Position is required');
+                    break;
+                }
+                if(!$income_received) {
+                    $this->error('Income is required');
+                    break;
+                }
+                if(!$store_received) {
+                    $this->error('Store is required');
+                    break;
+                }
+
+                $id          = $this->last_employee_id;
+                $key         = $this->prefix.'employee_'.$id;
+
+                $store_found = FALSE;
+
+                if(!is_numeric($store)) {
+                    if($this->debug) {
+                        $this->notice("🐞 String received for store. Searching for id of store:");
+                    }
+                    for($i=0;$i < $this->last_store_id;$i++) {
+                        if($store === $this->redis_client->get($this->prefix.'store_' . $i)) {
+                            if($this->debug) {
+                                $this->notice("🐞 Store with name {$store} found at {$i}");
+                            }
+                            $store = $i;
+                            $store_found = TRUE;
+                            break;
+                        }
+                    }
+                } elseif ($this->redis_client->exists($this->prefix.'store_' . $store)) {
+                    if($this->debug) {
+                        $this->notice("🐞 ID received for store name, and store with that ID exists.");
+                        $this->notice("🐞 Store name is: {$this->redis_client->get($this->prefix.'store_' . $store)}");
+                    }
+                    $store_found = TRUE;
+                }
+
+                $position_found = FALSE;
+
+                if(!is_numeric($position)) {
+                    if($this->debug) {
+                        $this->notice("🐞 String received for position. Searching for id of position:");
+                    }
+                    for($i=0;$i < $this->last_position_id;$i++) {
+                        if($position === $this->redis_client->get($this->prefix.'position_' . $i)) {
+                            if($this->debug) {
+                                $this->notice("🐞 Position with name {$position} found at {$i}");
+                            }
+                            $position = $i;
+                            $position_found = TRUE;
+                            break;
+                        }
+                    }
+                } elseif ($this->redis_client->exists($this->prefix.'position_' . $position)) {
+                    if($this->debug) {
+                        $this->notice("🐞 ID received for position name, and position with that ID exists.");
+                        $this->notice("🐞 Position name is: {$this->redis_client->get($this->prefix.'store_' . $store)}");
+                    }
+                    $position_found = TRUE;
+                }
+
+                $implode = $name.
+                    $position.
+                    $income.
+                    $store;
+
+                if( $this->redis_client->exists($this->prefix.md5($implode)) ) {
+                    $this->info('Seems that this data already added, do you want to proceed? yes|no');
+                    $handle = fopen ("php://stdin","r");
+                    $line = fgets($handle);
+                    if(in_array(trim($line), ['no', 'n'])){
+                        $this->info("Ok, so we can't proceed any more!");
+                        fclose($handle);break;
+                    }
+                    fclose($handle);
+                }
+
+                if(!$store_found && !is_numeric($store)) {
+                    $this->info("Store {$store} is not found. Do you want to add store? yes|no");
+                    $handle = fopen ("php://stdin","r");
+                    $line = fgets($handle);
+                    if(in_array(trim($line), ['yes', 'y'])){
+                        $s_key = $this->prefix.'store_'.$this->last_store_id;
+                        $this->redis_client->set($s_key, $store);
+                        $this->success("Store with name {$store} has been added.");
+                        $store = $this->last_store_id;
+                        $this->last_store_id++;
+                        $this->redis_client->set($this->prefix.'last_store_id', $this->last_store_id);
+                        $store_found = TRUE;
+                    } else {
+                        $this->info("Ok, so we can't proceed any more!");
+                        fclose($handle);break;
+                    }
+                    fclose($handle);
+                }
+
+                if(!$store_found) {
+                    $this->error("Store {$store} not found.");
+                    break;
+                }
+
+                if(!$position_found && !is_numeric($position)) {
+                    $this->info("Position {$position} is not found. Do you want to add this position? yes|no");
+                    $handle = fopen ("php://stdin","r");
+                    $line = fgets($handle);
+                    if(in_array(trim($line), ['yes', 'y'])) {
+                        $p_key = $this->prefix.'position_'.$this->last_position_id;
+                        $this->redis_client->set($p_key, $position);
+                        $this->success("Position with name {$position} has been added.");
+                        $position = $this->last_position_id;
+                        $this->last_position_id++;
+                        $this->redis_client->set($this->prefix.'last_position_id', $this->last_position_id);
+                        $position_found = TRUE;
+                    } else {
+                        $this->info("Ok, so we can't proceed any more!");
+                        fclose($handle);break;
+                    }
+                    fclose($handle);
+                }
+
+                if(!$position_found) {
+                    $this->error("Position {$position} not found.");
+                    break;
+                }
+
+                $this->redis_client->set($key, $name.'|'.$position.'|'.$income.'|'.$store);
+                $this->success("Employee with name {$name} has been added.");
+                if($this->redis_client->exists($this->prefix.'store_'.$store.'_index')) {
+                    $this->redis_client->append($this->prefix.'store_'.$store.'_index', '|'.$this->last_employee_id);
+                } else {
+                    $this->redis_client->set($this->prefix.'store_'.$store.'_index', $this->last_employee_id);
+                }
+                if($this->redis_client->exists($this->prefix.'position_'.$store.'_index')) {
+                    $this->redis_client->append($this->prefix.'position_'.$store.'_index', '|'.$this->last_employee_id);
+                } else {
+                    $this->redis_client->set($this->prefix.'position_'.$store.'_index', $this->last_employee_id);
+                }
+                $this->last_employee_id++;
+                if($this->debug) {
+                    $this->notice("🐞 last_employee_id added by 1: {$this->last_employee_id}.");
+                }
+                $this->redis_client->set($this->prefix.'last_employee_id', $this->last_employee_id);
+                $implode = $name.
+                    $position.
+                    $income.
+                    $store;
+                $this->redis_client->set($this->prefix.md5($implode), '1');
+                if($this->debug) {
+                    $this->notice("🐞 Hashed info added: ".md5($implode));
+                }
+                break;
+            case 'get_employee':
+                $search_by = array();
+                $pos_received = $store_received = FALSE;
+                if($this->debug) {
+                    $this->notice("🐞 Arguments received: ".implode(', ', $options->getArgs()));
+                    $this->notice("🐞 Processing args:");
+                }
+                foreach ($options->getArgs() as $arg) {
+                    if($this->debug) {
+                        $this->notice("🐞 Processing arg: {$arg}");
+                    }
+                    if(strpos($arg, 'position=') !== FALSE) {
+                        $position = str_replace('position=', '', $arg);
+                        if($this->debug) {
+                            $this->notice("🐞 Arg is position: {$position}");
+                        }
+                        $pos_received = true;
+                        array_push($search_by, 'position');
+                    }
+                    if(strpos($arg, 'store=') !== FALSE) {
+                        $store = str_replace('store=', '', $arg);
+                        if($this->debug) {
+                            $this->notice("🐞 Arg is store: {$store}");
+                        }
+                        $store_received = true;
+                        array_push($search_by, 'store');
+                    }
+                    if(strpos($arg, '-s') !== FALSE) {
+                        if($this->debug) {
+                            $this->notice("🐞 Option --sum detected.");
+                        }
+                        $opt_sum = TRUE;
+                    }
+                    if(strpos($arg, '-a') !== FALSE) {
+                        if($this->debug) {
+                            $this->notice("🐞 Option --average detected.");
+                        }
+                        $opt_average = TRUE;
+                    }
+                }
+                if($pos_received===FALSE && $store_received===FALSE) {
+                    $this->error('Not enough arguments');
+                    break;
+                }
+
+                $store_found = FALSE;
+
+                if($store_received) {
+                    if (!is_numeric($store)) {
+                        if($this->debug) {
+                            $this->notice("🐞 Store name received. Searching for id of store:");
+                        }
+                        for ($i = 0; $i < $this->last_store_id; $i++) {
+                            if($this->debug) {
+                                $this->notice("🐞 Store {$i}; ".$this->redis_client->get($this->prefix.'store_' . $i));
+                            }
+                            if ($store === $this->redis_client->get($this->prefix.'store_' . $i)) {
+                                if($this->debug) {
+                                    $this->notice("🐞 Store found at: {$i}, ".$this->redis_client->get($this->prefix.'store_' . $i));
+                                }
+                                $store = $i;
+                                $store_found = TRUE;
+                                break;
+                            }
+                        }
+                    } elseif ($this->redis_client->exists($this->prefix.'store_' . $store)) {
+                        if($this->debug) {
+                            $this->notice("🐞 Store ID received, and store exists.");
+                        }
+                        $store_found = TRUE;
+                    }
+                }
+
+                $employees_with_store = array();
+                if($store_received && !$store_found) {
+                    $this->error('Store not found.');
+                    break;
+                } elseif($store_received && $store_found) {
+                    $store_index = $this->redis_client->get($this->prefix.'store_'.$store.'_index');
+                    if($this->debug) {
+                        $this->notice("🐞 Position found, position index is: ".$store);
+                        $this->notice("🐞 These employee IDs are indexed under position {$store}: {$store_index}");
+                    }
+                    $store_index_arr = explode('|', $store_index);
+                    if($this->debug) {
+                        $this->notice("🐞 Collecting employees...");
+                    }
+                    foreach ($store_index_arr as $store_i) {
+                        array_push($employees_with_store,
+                            $this->redis_client->get($this->prefix.'employee_'.$store_i));
+                        if($this->debug) {
+                            $this->notice("🐞 Employee {$this->redis_client->get($this->prefix.'employee_'.$store_i)} collected.");
+                        }
+                    }
+                }
+
+                $position_found = FALSE;
+
+                if($pos_received) {
+                    if (!is_numeric($position)) {
+                        if($this->debug) {
+                            $this->notice("🐞 Position name received: {$position}. Searching for id of position:");
+                        }
+                        for ($i = 0; $i < $this->last_position_id; $i++) {
+                            if($this->debug) {
+                                $this->notice("🐞 Position {$i}; ".$this->redis_client->get($this->prefix.'position_' . $i));
+                            }
+                            if ($position === $this->redis_client->get($this->prefix.'position_' . $i)) {
+                                if($this->debug) {
+                                    $this->notice("🐞 Position found at: {$i}, ".$this->redis_client->get($this->prefix.'position_' . $i));
+                                }
+                                $position = $i;
+                                $position_found = TRUE;
+                                break;
+                            }
+                        }
+                    } elseif ($this->redis_client->exists($this->prefix.'position_' . $position)) {
+                        if($this->debug) {
+                            $this->notice("🐞 Position ID received, and position exists.");
+                        }
+                        $position_found = TRUE;
+                    }
+                }
+
+                $employees_with_position = array();
+                if($pos_received && !$position_found) {
+                    $this->error('Position not found.');
+                    break;
+                } elseif($pos_received && $position_found) {
+                    $position_index = $this->redis_client->get($this->prefix.'position_'.$position.'_index');
+                    if($this->debug) {
+                        $this->notice("🐞 Position found, position index is: ".$position);
+                        $this->notice("🐞 These employee IDs are indexed under position {$position}: {$position_index}");
+                    }
+                    $position_index_arr = explode('|', $position_index);
+                    if($this->debug) {
+                        $this->notice("🐞 Collecting employees...");
+                    }
+                    foreach ($position_index_arr as $position_i) {
+                        array_push($employees_with_position,
+                            $this->redis_client->get($this->prefix.'employee_'.$position_i));
+                        if($this->debug) {
+                            $this->notice("🐞 Employee {$this->redis_client->get($this->prefix.'employee_'.$position_i)} collected.");
+                        }
+                    }
+                }
+
+                $employees = array_merge($employees_with_store, $employees_with_position);
+
+                $sum_income = 0;
+
+                $tf = new TableFormatter($this->colors);
+                $tf->setBorder(' | ');
+                // show a header
+                echo $tf->format(
+                    array('*', '25%', '25%', '25%'),
+                    array('Name', 'Position', 'Income', 'Store')
+                );
+                // a line across the whole width
+                echo str_pad('', $tf->getMaxWidth(), '-') . "\n";
+                foreach ($employees as $key => $employee) {
+                    $info         = explode('|', $employee);
+                    $t_name       = $info[0];
+                    $t_position   = $this->redis_client->get($this->prefix.'position_'.$info[1]);
+                    $t_income     = $info[2]; $sum_income += $t_income;
+                    $t_store      = $this->redis_client->get($this->prefix.'store_'.$info[3]);
+                    echo $tf->format(
+                        array('*', '25%', '25%', '25%'),
+                        array($t_name, $t_position, $t_income, $t_store),
+                        array(Colors::C_CYAN, Colors::C_RED, Colors::C_GREEN, Colors::C_PURPLE)
+                    );
+                }
+
+                $avg = $sum_income/count($employees);
+                if(@$opt_average) {
+                    if(in_array('store', $search_by)) {
+                        $this->info("💰 Average income for store {$this->redis_client->get($this->prefix.'store_'.$store)}: {$avg}");
+                    }
+                    if(in_array('position', $search_by)) {
+                        $this->info("💰 Average income for position {$this->redis_client->get($this->prefix.'position_'.$position)}: {$avg}");
+                    }
+                }
+                if(@$opt_sum) {
+                    if(in_array('store', $search_by)) {
+                        $this->info("💰 Sum income for store {$this->redis_client->get($this->prefix.'store_'.$store)}: {$sum_income}");
+                    }
+                    if(in_array('position', $search_by)) {
+                        $this->info("💰 Sum income for position {$this->redis_client->get($this->prefix.'position_'.$position)}: {$sum_income}");
+                    }
+                }
+
+                break;
+            case 'add_store':
+                /**
+                 * Already implemented store adding through employee adding process
+                 */
+                /*$name = str_replace('name=', '', $options->getArgs()[0]);
+                $store_found = FALSE;
+                for($i=0;$i < $this->last_store_id;$i++) {
+                    if($name === $this->redis_client->get($this->prefix.'store_' . $i)) {
+                        $store_found = TRUE;
+                        break;
+                    }
+                }
+                if($store_found) {
+                    $this->error("Store {$name} is already added.");
+                    break;
+                }
+                $id = $this->last_store_id;
+                $this->redis_client->set($this->prefix.'store_'.$id, $name);
+                $this->success("Store with name {$name} has been added.");
+                $this->last_store_id++;
+                $this->redis_client->set($this->prefix.'last_store_id', $this->last_store_id);
+                break;*/
+            case 'add_position':
+                /**
+                 * Already implemented position adding through employee adding process
+                 */
+                /*$name = str_replace('name=', '', $options->getArgs()[0]);
+                $position_found = FALSE;
+                for($i=0;$i < $this->last_position_id;$i++) {
+                    if($name === $this->redis_client->get($this->prefix.'position_' . $i)) {
+                        $position_found = TRUE;
+                        break;
+                    }
+                }
+                if($position_found) {
+                    $this->error("Position {$name} is already added.");
+                    break;
+                }
+                $id = $this->last_position_id;
+                $this->redis_client->set($this->prefix.'position_'.$id, $name);
+                $this->success("Position with name {$name} has been added.");
+                $this->last_position_id++;
+                $this->redis_client->set($this->prefix.'last_position_id', $this->last_position_id);
+                break;*/
+        }
+    }
+}
+// execute it
+$cli = new iRedis();
+$cli->run();
+

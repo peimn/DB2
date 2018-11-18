@@ -1,0 +1,6 @@
+php iRedis add_employee name="shahab malekzadeh" position=cashier income=1500 store=tehran
+php iRedis add_employee name="soroush pourabdi" position=janitor income=600 store=zanjan
+php iRedis add_employee name="mahan ghazanfari" position=manager income=3100 store=zanjan
+php iRedis add_employee name="farshid shekari" position=cashier income=1500 store=zanjan
+php iRedis add_employee name="farzin ghanbari" position=seller income=1900 store=shiraz
+php iRedis add_employee name="ali hakami" position=seller income=1950 store=zanjan
